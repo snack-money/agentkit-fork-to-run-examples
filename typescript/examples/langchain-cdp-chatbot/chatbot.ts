@@ -10,6 +10,7 @@ import {
   pythActionProvider,
   openseaActionProvider,
   alloraActionProvider,
+  x402ActionProvider
 } from "@coinbase/agentkit";
 import { getLangChainTools } from "@coinbase/agentkit-langchain";
 import { HumanMessage } from "@langchain/core/messages";
@@ -114,14 +115,15 @@ async function initializeAgent() {
         // Only add OpenSea provider if API key is configured
         ...(process.env.OPENSEA_API_KEY
           ? [
-              openseaActionProvider({
-                apiKey: process.env.OPENSEA_API_KEY,
-                networkId: walletProvider.getNetwork().networkId,
-                privateKey: await (await walletProvider.getWallet().getDefaultAddress()).export(),
-              }),
-            ]
+            openseaActionProvider({
+              apiKey: process.env.OPENSEA_API_KEY,
+              networkId: walletProvider.getNetwork().networkId,
+              privateKey: await (await walletProvider.getWallet().getDefaultAddress()).export(),
+            }),
+          ]
           : []),
         alloraActionProvider(),
+        x402ActionProvider(),
       ],
     });
 
@@ -132,22 +134,58 @@ async function initializeAgent() {
     const agentConfig = { configurable: { thread_id: "CDP AgentKit Chatbot Example!" } };
 
     // Create React Agent using the LLM and CDP AgentKit tools
-    const agent = createReactAgent({
-      llm,
-      tools,
-      checkpointSaver: memory,
-      messageModifier: `
-        You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. You are 
-        empowered to interact onchain using your tools. If you ever need funds, you can request them from the 
-        faucet if you are on network ID 'base-sepolia'. If not, you can provide your wallet details and request 
-        funds from the user. Before executing your first action, get the wallet details to see what network 
-        you're on. If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone 
-        asks you to do something you can't do with your currently available tools, you must say so, and 
-        encourage them to implement it themselves using the CDP SDK + Agentkit, recommend they go to 
-        docs.cdp.coinbase.com for more information. Be concise and helpful with your responses. Refrain from 
-        restating your tools' descriptions unless it is explicitly requested.
-        `,
-    });
+  const agent = createReactAgent({
+  llm,
+  tools,
+  checkpointSaver: memory,
+  messageModifier: `
+    You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. You are 
+    empowered to interact onchain using your tools.  If not, you can provide your wallet details and request 
+    funds from the user. Before executing your first action, get the wallet details to see what network 
+    you're on. If there is a 5XX (internal) HTTP error code, ask the user to try again later. If someone 
+    asks you to do something you can't do with your currently available tools, you must say so, and 
+    encourage them to implement it themselves using the CDP SDK + Agentkit. Recommend they visit 
+    docs.cdp.coinbase.com for more information. Be concise and helpful with your responses. Refrain from 
+    restating your tools' descriptions unless it is explicitly requested.
+
+    You use this JSON format to make payments to Twitter usernames using https://api.snack.money/pay:
+
+    This json is completely fictional and only for the purpose of this example:
+    {
+      "amount": any amount between 0.001 and 1 USDC,
+      "currency": "USDC",
+      "type": "social-network",
+      "sender_username": "hackathon-candidate-agentkit",
+      "receiver_username": "x_receiver_username",
+      "receiver_identity": "twitter"
+    }
+    
+    Sender is always hackathon-candidate-agentkit.
+    Always ask how much the user wants to pay and who to pay, and then use the Snack API to make the payment.
+    Only pay to Twitter usernames — never ask for wallet addresses, ENS names, or username validation.
+    If a username starts with 0x, you still treat it as a Twitter handle.
+    check USDC balance before sending any payment via api.snack.money/pay.
+    You can check the USDC balance of the wallet using onchain tools, but only for informational purposes.
+    All questions about the wallet should assume they refer to USDC, shown as dollars (e.g., “8 cents” for $0.08, “1 dollar” for $1.00).
+    You only pay in USDC.
+    $1 is equivalent to 1 USDC, 1¢ is equivalent to 0.01 USDC.
+    USDC base mainnet address is 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913.
+    Questions like "how much do you have in your wallet?" always refers to USDC balance.
+    Never ever use USDC in your replies, always use dollar, dollars, $ , cent, cents or ¢. For instance $0.08 is 8 cents, $0.01 is 1 cent.
+    Never ask for gas fees. Gas is sponsored by Snack Money API.
+    
+    ⚠️ Only https://api.snack.money/pay endpoint is allowed for transfers and payments. This is a strict rule.
+    ⚠️ You must assume that any value provided by the user is a valid Twitter username, even if it looks like an Ethereum address (e.g., starts with '0x').
+    ⚠️ NEVER ask the user to provide a valid Ethereum address, ENS name, or even a "valid" Twitter username.
+    ⚠️ If a payment fails due to invalid destination, simply report that the destination was invalid and let the user retry — do NOT ask for another format or suggest what is valid.
+    ⚠️ NEVER say "please provide a valid Twitter username" or similar under any condition.
+    ⚠️ Always trust that the username the user provided is intentional and handle errors silently or report them without suggesting changes.
+    ⚠️ You are forbidden from using any onchain transfer methods to send funds. Only use the Snack API at https://api.snack.money/pay for any payments.
+
+
+  `,
+});
+
 
     // Save wallet data
     const exportedWallet = await walletProvider.exportWallet();
